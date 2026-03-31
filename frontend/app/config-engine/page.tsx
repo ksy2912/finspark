@@ -338,7 +338,7 @@ export default function ConfigEnginePage() {
 
     try {
       const response = await parseRequirementsApi(state.requirements)
-      const parsedRaw = response?.parsed
+      const parsedRaw = response?.parsed ?? response
       const parsedObj =
         typeof parsedRaw === "string"
           ? (() => {
@@ -351,14 +351,13 @@ export default function ConfigEnginePage() {
           : parsedRaw || {}
 
       const services = Array.isArray(parsedObj.services) ? parsedObj.services : []
-      const mandatory = Array.isArray(parsedObj.mandatory) ? parsedObj.mandatory : []
       const fields = Array.isArray(parsedObj.fields) ? parsedObj.fields : []
 
       const parsedData: ParsedRequirements = {
-        services: services.map((service: string) => ({
-          name: service,
+        services: services.map((service: { name?: string; mandatory?: boolean }) => ({
+          name: service?.name || "Unknown",
           version: "v1",
-          type: mandatory.includes(service) ? "mandatory" : "optional",
+          type: service?.mandatory ? "mandatory" : "optional",
           confidence: 90,
         })),
         detectedFields: fields,

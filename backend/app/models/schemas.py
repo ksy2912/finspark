@@ -13,5 +13,5 @@ class ConfigInput(BaseModel):
 class SimulationInput(BaseModel):
     aadhaar_number: str
     full_name: str
-    dob: str
+    dob: str | None = None
 

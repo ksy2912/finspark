@@ -1,65 +1,99 @@
+import json
 import os
 
-import requests
 from dotenv import load_dotenv
+from groq import Groq
 
 load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-
-def parse_with_groq(text: str):
-    try:
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "llama3-70b-8192",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": f"""
-Extract structured JSON from this requirement:
+PROMPT_TEMPLATE = """
+Extract structured data from this requirement:
 
 {text}
 
-Return JSON:
-services, mandatory, fields
-""",
-                    }
-                ],
-            },
-            timeout=30,
-        )
+Return ONLY valid JSON:
+{{
+  "services": [
+    {{"name": "KYC", "mandatory": true}},
+    {{"name": "Payment", "mandatory": true}},
+    {{"name": "Email", "mandatory": false}},
+    {{"name": "Audit", "mandatory": true}},
+    {{"name": "Fraud", "mandatory": false}}
+  ],
+  "fields": ["name", "aadhaar", "email", "phone"]
+}}
+"""
 
-        return response.json()["choices"][0]["message"]["content"]
 
-    except Exception:
-        return None
+def _normalize_payload(payload: dict) -> dict:
+    services = payload.get("services", [])
+    fields = payload.get("fields", [])
+
+    if not isinstance(services, list) or not isinstance(fields, list):
+        raise ValueError("Invalid payload shape")
+
+    normalized_services = []
+    for item in services:
+        if not isinstance(item, dict):
+            raise ValueError("Service item must be an object")
+        name = item.get("name")
+        mandatory = item.get("mandatory")
+        if not isinstance(name, str) or not isinstance(mandatory, bool):
+            raise ValueError("Service item fields are invalid")
+        normalized_services.append({"name": name, "mandatory": mandatory})
+
+    normalized_fields = [field for field in fields if isinstance(field, str)]
+    return {"services": normalized_services, "fields": normalized_fields}
+
+
+def parse_with_groq(text: str):
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY is not set")
+
+    print("Calling GROQ API...")
+    client = Groq(api_key=GROQ_API_KEY)
+    response = client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=[{"role": "user", "content": PROMPT_TEMPLATE.format(text=text)}],
+        temperature=0,
+    )
+    raw_content = response.choices[0].message.content or ""
+    print(f"Groq raw response: {raw_content}")
+
+    try:
+        parsed = json.loads(raw_content)
+    except Exception as exc:
+        raise ValueError(f"Invalid JSON from Groq: {exc}") from exc
+
+    return _normalize_payload(parsed)
 
 
 def fallback_parser(text: str):
     text = text.lower()
 
     services = []
-    mandatory = []
     fields = []
 
     if "kyc" in text:
-        services.append("KYC")
-        mandatory.append("KYC")
+        services.append({"name": "KYC", "mandatory": True})
 
     if "payment" in text:
-        services.append("Payment")
+        services.append({"name": "Payment", "mandatory": True})
 
-    if "aadhaar" in text:
-        fields.append("aadhaar")
+    if "email" in text:
+        services.append({"name": "Email", "mandatory": False})
 
-    if "name" in text:
-        fields.append("name")
+    if "audit" in text:
+        services.append({"name": "Audit", "mandatory": True})
 
-    return {"services": services, "mandatory": mandatory, "fields": fields}
+    if "fraud" in text:
+        services.append({"name": "Fraud", "mandatory": False})
+
+    for field in ("name", "aadhaar", "email", "phone"):
+        if field in text:
+            fields.append(field)
+
+    return {"services": services, "fields": fields}
 

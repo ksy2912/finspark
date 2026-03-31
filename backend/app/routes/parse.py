@@ -8,10 +8,10 @@ router = APIRouter()
 
 @router.post("/parse")
 def parse_requirement(req: RequirementInput):
-    result = parse_with_groq(req.text)
-
-    if result:
-        return {"parsed": result}
-
-    return {"parsed": fallback_parser(req.text)}
+    try:
+        return parse_with_groq(req.text)
+    except Exception as exc:
+        print(f"Groq parsing failed: {exc}")
+        print("Using fallback parser...")
+        return fallback_parser(req.text)
 
